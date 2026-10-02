@@ -41,12 +41,14 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280
     checks.push({p,bounds:b,calls:state.diagnostics.calls,triangles:state.diagnostics.triangles});
     if([0,.255,.52,.755,1].includes(p))await page.screenshot({path:`${out}/${name}-${String(p).replace('.','_')}.png`});
   }
-  await page.locator('.chapter-nav button').nth(2).click();await page.waitForTimeout(900);
+  await page.locator('.chapter-nav button').nth(2).click();
+  await page.waitForFunction(()=>Math.abs(window.__LUMEN.getState().progress-.52)<.002,null,{timeout:15000});
   assert.ok(Math.abs((await page.evaluate(()=>window.__LUMEN.getState().progress))-.52)<.002);
   if(name==='mobile'){
     for(const language of ['ru','kk','en']){await page.locator(`[data-locale="${language}"]`).click();await page.waitForTimeout(200);const s=await page.evaluate(()=>window.__LUMEN.getState());assert.equal(s.locale,language);assert.ok(Math.abs(s.progress-.52)<.002);}
   }
-  await page.keyboard.press('Home');await page.waitForTimeout(900);
+  await page.keyboard.press('Home');
+  await page.waitForFunction(()=>window.__LUMEN.getState().progress<.002,null,{timeout:15000});
   assert.ok((await page.evaluate(()=>window.__LUMEN.getState().progress))<.002);
   await page.mouse.wheel(0,500);await page.waitForTimeout(150);assert.ok((await page.evaluate(()=>window.__LUMEN.getState().progress))>0);
   if(name==='mobile'){
@@ -60,7 +62,9 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280
   await page.screenshot({path:`${out}/${name}-story.png`});
   await page.locator('#details').evaluate(el=>el.scrollIntoView({behavior:'instant'}));await page.waitForTimeout(100);
   const gallery=page.locator('.gallery');const before=await gallery.evaluate(el=>el.scrollLeft);
-  await page.locator('[data-gallery="1"]').click();await page.waitForTimeout(500);assert.ok(await gallery.evaluate(el=>el.scrollLeft)>before);
+  await page.locator('[data-gallery="1"]').click();
+  await page.waitForFunction(before=>document.querySelector('.gallery').scrollLeft>before,before,{timeout:15000});
+  assert.ok(await gallery.evaluate(el=>el.scrollLeft)>before);
   await gallery.focus();await page.keyboard.press('ArrowLeft');await page.waitForTimeout(500);
   await page.screenshot({path:`${out}/${name}-gallery.png`});
   await page.locator('.closing').evaluate(el=>el.scrollIntoView({behavior:'instant'}));await page.waitForTimeout(100);await page.screenshot({path:`${out}/${name}-closing.png`});
