@@ -8,15 +8,18 @@ const out=process.env.LUMEN_EVIDENCE||'../evidence/browser';
 const browser=await chromium.launch({headless:true,...(process.platform==='win32'?{executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'}:{})});
 await mkdir(out,{recursive:true});
 const records=[];
-for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280,800,'en'],['tablet',768,1024,'ru'],['mobile',390,844,'en'],['small-mobile',320,568,'en'],['mobile-ru',390,844,'ru'],['mobile-kk',390,844,'kk'],['small-mobile-kk',320,568,'kk'],['landscape',844,390,'en']]){
+for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['user-desktop',1521,730,'en'],['laptop',1280,800,'en'],['tablet',768,1024,'ru'],['mobile',390,844,'en'],['small-mobile',320,568,'en'],['mobile-ru',390,844,'ru'],['mobile-kk',390,844,'kk'],['small-mobile-kk',320,568,'kk'],['landscape',844,390,'en']]){
   const context=await browser.newContext({viewport:{width,height},hasTouch:name.includes('mobile'),isMobile:name.includes('mobile')});
   const page=await context.newPage();
-  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const errors=[],failedRequests=[],consoleErrors=[];page.on('pageerror',e=>errors.push(e.message));
+  page.on('response',r=>{if(r.status()>=400)failedRequests.push({url:r.url(),status:r.status()});});
+  page.on('requestfailed',r=>failedRequests.push({url:r.url(),failure:r.failure()?.errorText}));
+  page.on('console',message=>{if(message.type()==='error')consoleErrors.push(message.text());});
   const response=await page.goto(`${base}?lang=${lang}`);assert.equal(response.status(),200);
   await page.waitForFunction(()=>window.__LUMEN?.getState().webgl);await page.evaluate(()=>document.fonts.ready);
   await page.waitForTimeout(200);
-  const checks=[];
-  for(const p of [0,.08,.17,.255,.30,.38,.52,.65,.755,.87,1,.755,.52,.255,0]){
+  const checks=[],poses=new Map();
+  for(const p of [0,.03,.06,.09,.12,.17,.21,.255,.30,.38,.52,.65,.755,.87,1,.755,.52,.255,.17,.12,.09,.06,.03,0]){
     await page.evaluate(p=>{const s=window.__LUMEN.getState();window.scrollTo({top:s.measurements.start+s.measurements.range*p,behavior:'instant'});},p);
     await page.waitForTimeout(50);
     const state=await page.evaluate(()=>{
@@ -33,13 +36,30 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280
     const b=state.diagnostics.bounds;
     assert.ok(b.left>=8&&b.right<=width-8,`${name} ${p}: object clipped horizontally ${JSON.stringify(b)}`);
     assert.ok(b.top>=80&&b.bottom<=height-62,`${name} ${p}: object clipped vertically ${JSON.stringify(b)}`);
+    const presentationCase=state.diagnostics.presentationCase;
+    assert.ok(state.diagnostics.state.lidAngle<=0,`${name} ${p}: lid swings downward`);
+    assert.ok(presentationCase.lidClearance>.004,`${name} ${p}: lid intersects case walls`);
+    const c=presentationCase.bounds;
+    if(poses.has(p)){
+      const previous=poses.get(p);
+      for(const bound of ['bounds','lidBounds'])for(const edge of ['left','right','top','bottom'])assert.ok(Math.abs(previous[bound][edge]-presentationCase[bound][edge])<1,`${name} ${p}: reverse case pose differs`);
+    }else poses.set(p,presentationCase);
+    if(state.diagnostics.state.boxOpacity>.005){
+      assert.ok(c.left>=16&&c.right<=width-16&&c.top>=80&&c.bottom<=height-62,`${name} ${p}: case or lid clipped ${JSON.stringify(c)}`);
+    }
+    if(p===0){
+      for(let axis=0;axis<3;axis++)assert.ok(presentationCase.assembledBounds.min[axis]>=presentationCase.cavity.min[axis]&&presentationCase.assembledBounds.max[axis]<=presentationCase.cavity.max[axis],`${name}: lens starts outside the closed case ${JSON.stringify(presentationCase)}`);
+    }
     for(const panel of state.panels){
       assert.ok(panel.left>=16&&panel.right<=width-16,`${name} ${p}: caption clipped ${JSON.stringify(panel)}`);
-      const overlap=panel.rects.some(rect=>Math.min(rect.right,b.right)-Math.max(rect.left,b.left)>8&&Math.min(rect.bottom,b.bottom)-Math.max(rect.top,b.top)>8);
+      const objects=[b,...(state.diagnostics.state.boxOpacity>.005?[c]:[])];
+      const overlap=panel.rects.some(rect=>objects.some(object=>Math.min(rect.right,object.right)-Math.max(rect.left,object.left)>8&&Math.min(rect.bottom,object.bottom)-Math.max(rect.top,object.top)>8));
       assert.ok(!overlap,`${name} ${p}: caption ${panel.id} overlaps object ${JSON.stringify({panel,b})}`);
     }
-    checks.push({p,bounds:b,calls:state.diagnostics.calls,triangles:state.diagnostics.triangles});
-    if([0,.255,.52,.755,1].includes(p))await page.screenshot({path:`${out}/${name}-${String(p).replace('.','_')}.png`});
+    const control=await page.locator('.motion-toggle').boundingBox();
+    assert.ok(control.x>=16&&control.x+control.width<=width-16&&control.y+control.height<=height,`${name}: Motion control cropped`);
+    checks.push({p,bounds:b,presentationCase,calls:state.diagnostics.calls,triangles:state.diagnostics.triangles});
+    if([0,.03,.06,.12,.17,.255,.52,.755,1].includes(p))await page.screenshot({path:`${out}/${name}-${String(p).replace('.','_')}.png`});
   }
   await page.locator('.chapter-nav button').nth(2).click();
   await page.waitForFunction(()=>Math.abs(window.__LUMEN.getState().progress-.52)<.002,null,{timeout:15000});
@@ -51,6 +71,18 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280
   await page.waitForFunction(()=>window.__LUMEN.getState().progress<.002,null,{timeout:15000});
   assert.ok((await page.evaluate(()=>window.__LUMEN.getState().progress))<.002);
   await page.mouse.wheel(0,500);await page.waitForTimeout(150);assert.ok((await page.evaluate(()=>window.__LUMEN.getState().progress))>0);
+  for(const delta of [1800,1800,-2600,1200,-2200])await page.mouse.wheel(0,delta);
+  await page.waitForTimeout(150);
+  const fast=await page.evaluate(()=>window.__LUMEN.getState());
+  assert.ok(Number.isFinite(fast.progress)&&fast.diagnostics.presentationCase.lidClearance>.004,`${name}: fast scroll invalid pose`);
+  if(name==='desktop'){
+    for(const viewport of [{width:390,height:844},{width:320,height:568},{width:1440,height:1000}]){
+      await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));await page.waitForTimeout(120);
+      const resized=await page.evaluate(()=>window.__LUMEN.getState());const c=resized.diagnostics.presentationCase.bounds;
+      assert.ok(resized.progress<.002&&c.left>=16&&c.right<=viewport.width-16&&c.top>=80&&c.bottom<=viewport.height-62,`resize clips the opening case ${JSON.stringify({viewport,c})}`);
+      await page.screenshot({path:`${out}/resize-${viewport.width}-${viewport.height}.png`});
+    }
+  }
   if(name==='mobile'){
     const before=await page.evaluate(()=>window.scrollY);const cdp=await context.newCDPSession(page);const y=height*.72;
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:width/2,y}]});
@@ -69,8 +101,9 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['laptop',1280
   await page.screenshot({path:`${out}/${name}-gallery.png`});
   await page.locator('.closing').evaluate(el=>el.scrollIntoView({behavior:'instant'}));await page.waitForTimeout(100);await page.screenshot({path:`${out}/${name}-closing.png`});
   assert.deepEqual(errors,[]);
+  assert.deepEqual(failedRequests,[],`${name}: failed asset requests`);assert.deepEqual(consoleErrors,[],`${name}: console errors`);
   const axe=await new AxeBuilder({page}).analyze();assert.deepEqual(axe.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,html:n.html,reason:n.failureSummary}))})),[],`${name}: accessibility violations`);
-  records.push({name,width,height,lang,checks,errors:0,axeViolations:0});console.log(`${name}: scroll, bounds, input, gallery and accessibility passed`);
+  records.push({name,width,height,lang,checks,errors:0,consoleErrors:0,networkFailures:0,axeViolations:0});console.log(`${name}: scroll, bounds, input, gallery and accessibility passed`);
   await context.close();
 }
 // System reduced motion uses one still stage and ordinary document scrolling.

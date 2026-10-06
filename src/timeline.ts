@@ -30,7 +30,8 @@ export function sampleTimeline(progress: number, mobile = false, reduced = false
     scale: mobile ? mix(1.04, 0.77, explode) : mix(1.25, 1.01, explode),
     aperture: mix(0.38, 0.82, iris),
     boxOpacity: reduced ? 0 : 1 - smooth(0.08, 0.21, p),
-    boxY: -2.10 - reveal * 2.6,
+    boxY: -.18 + (mobile ? -1.10 : 0) - 1.92 * (mobile ? 1.04 / 1.25 : 1),
+    lidAngle: -open * 2.04,
     parts: BASE_Z.map((z, index) => ({
       z: z + (4 - index) * (mobile ? 0.82 : 1.12) * explode,
       y: iris * Math.sin(index * 0.7) * 0.10,

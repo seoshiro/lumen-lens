@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BASE_Z } from './timeline';
+import { makePresentationCase } from './presentation-case';
 
 export interface LensModel {
   root: THREE.Group;
@@ -110,14 +111,9 @@ export function makeLens(): LensModel {
   for(let i=0;i<3;i++) {const a=i/3*Math.PI*2;const lug=add(parts[8],new THREE.BoxGeometry(.32,.15,.09),silver,-.08);lug.position.x=Math.cos(a)*.99;lug.position.y=Math.sin(a)*.99;lug.rotation.z=a-Math.PI/2;}
   for(let i=0;i<8;i++) {const a=.10+i*.087;const pin=add(parts[8],new THREE.SphereGeometry(.029,10,8),brass,.092);pin.position.x=Math.cos(a)*.86;pin.position.y=Math.sin(a)*.86;}
 
-  const box=new THREE.Group(); const lid=new THREE.Group(); box.add(lid);
   const paper=material(new THREE.MeshStandardMaterial({color:'#dedbd2',roughness:.87,metalness:0}));
   const liner=material(new THREE.MeshStandardMaterial({color:'#adb0a7',roughness:.96}));
-  const boxBase=add(box,new THREE.BoxGeometry(3.12,.17,3.18),paper); boxBase.position.y=-.18;
-  for(const side of [-1,1]) {const wall=add(box,new THREE.BoxGeometry(.09,.46,3.18),paper);wall.position.set(side*1.52,.06,0);const front=add(box,new THREE.BoxGeometry(3.04,.46,.09),paper);front.position.set(0,.06,side*1.54);}
-  const cushion=add(box,new THREE.BoxGeometry(2.98,.09,3.02),liner);cushion.position.y=-.06;
-  lid.position.set(0,.31,-1.54); const lidTop=add(lid,new THREE.BoxGeometry(3.13,.12,3.18),paper);lidTop.position.z=1.54;
-  const lidInside=add(lid,new THREE.BoxGeometry(2.98,.012,3.01),liner);lidInside.position.set(0,-.069,1.54);
+  const {box,lid}=makePresentationCase(paper,liner);
   return {root,parts,blades,box,lid,materials};
 }
 
