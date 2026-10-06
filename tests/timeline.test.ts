@@ -27,7 +27,6 @@ test('the same scroll position yields the same scene in both directions',()=>{
 test('chapter anchors reveal their caption and allow semantic navigation',()=>{
   CHAPTERS.forEach((p,i)=>{assert.equal(chapterAt(p),i);assert.ok(chapterOpacity(p,i)>.85);});
   assert.equal(sampleTimeline(.55).explode,1);assert.equal(sampleTimeline(.75).iris,1);
-  assert.equal(sampleTimeline(.5,false,true).boxOpacity,0);
 });
 test('continuous choreography has no abrupt per-frame displacement',()=>{
   let previous=sampleTimeline(0);
@@ -41,5 +40,15 @@ test('captions fade sequentially without overlapping text',()=>{
   for(let i=0;i<=4000;i++){
     const visible=CHAPTERS.map((_,chapter)=>chapterOpacity(i/4000,chapter)).filter(opacity=>opacity>1e-6);
     assert.ok(visible.length<=1,`overlapping captions at ${i/4000}`);
+  }
+});
+
+test('the assembled lens responds to the first scroll input without a waiting phase',()=>{
+  for(const mobile of [false,true]){
+    const start=sampleTimeline(0,mobile),first=sampleTimeline(.01,mobile);
+    assert.deepEqual(start.parts.map(part=>part.z),[...BASE_Z]);
+    assert.equal(start.explode,0);assert.ok(start.scale>0);
+    assert.notEqual(first.rotY,start.rotY);assert.notEqual(first.modelY,start.modelY);
+    assert.deepEqual(first.parts.map(part=>part.z),[...BASE_Z]);
   }
 });

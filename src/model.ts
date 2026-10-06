@@ -1,18 +1,15 @@
 import * as THREE from 'three';
 import { BASE_Z } from './timeline';
-import { makePresentationCase } from './presentation-case';
 
 export interface LensModel {
   root: THREE.Group;
   parts: THREE.Group[];
   blades: THREE.Group[];
-  box: THREE.Group;
-  lid: THREE.Group;
   materials: THREE.Material[];
 }
 
 export function makeLens(): LensModel {
-  const root = new THREE.Group();
+  const root = new THREE.Group();root.name = 'lens';
   const materials: THREE.Material[] = [];
   const material = <T extends THREE.Material>(m: T): T => { materials.push(m); return m; };
   const silver = material(new THREE.MeshStandardMaterial({ color: '#b9bfc0', metalness: 0.91, roughness: 0.27 }));
@@ -111,10 +108,7 @@ export function makeLens(): LensModel {
   for(let i=0;i<3;i++) {const a=i/3*Math.PI*2;const lug=add(parts[8],new THREE.BoxGeometry(.32,.15,.09),silver,-.08);lug.position.x=Math.cos(a)*.99;lug.position.y=Math.sin(a)*.99;lug.rotation.z=a-Math.PI/2;}
   for(let i=0;i<8;i++) {const a=.10+i*.087;const pin=add(parts[8],new THREE.SphereGeometry(.029,10,8),brass,.092);pin.position.x=Math.cos(a)*.86;pin.position.y=Math.sin(a)*.86;}
 
-  const paper=material(new THREE.MeshStandardMaterial({color:'#dedbd2',roughness:.87,metalness:0}));
-  const liner=material(new THREE.MeshStandardMaterial({color:'#adb0a7',roughness:.96}));
-  const {box,lid}=makePresentationCase(paper,liner);
-  return {root,parts,blades,box,lid,materials};
+  return {root,parts,blades,materials};
 }
 
 export function shadowTexture() {

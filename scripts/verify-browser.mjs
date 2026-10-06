@@ -36,30 +36,27 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['user-desktop
     const b=state.diagnostics.bounds;
     assert.ok(b.left>=8&&b.right<=width-8,`${name} ${p}: object clipped horizontally ${JSON.stringify(b)}`);
     assert.ok(b.top>=80&&b.bottom<=height-62,`${name} ${p}: object clipped vertically ${JSON.stringify(b)}`);
-    const presentationCase=state.diagnostics.presentationCase;
-    assert.ok(state.diagnostics.state.lidAngle<=0,`${name} ${p}: lid swings downward`);
-    assert.ok(presentationCase.lidClearance>.004,`${name} ${p}: lid intersects case walls`);
-    const c=presentationCase.bounds;
-    if(poses.has(p)){
+    assert.deepEqual(state.diagnostics.renderRoots,['lens','lens-shadow'],`${name} ${p}: unexpected scene geometry`);
+    assert.equal(state.diagnostics.layerCount,9);
+    const firstVisit=!poses.has(p);
+    if(!firstVisit){
       const previous=poses.get(p);
-      for(const bound of ['bounds','lidBounds'])for(const edge of ['left','right','top','bottom'])assert.ok(Math.abs(previous[bound][edge]-presentationCase[bound][edge])<1,`${name} ${p}: reverse case pose differs`);
-    }else poses.set(p,presentationCase);
-    if(state.diagnostics.state.boxOpacity>.005){
-      assert.ok(c.left>=16&&c.right<=width-16&&c.top>=80&&c.bottom<=height-62,`${name} ${p}: case or lid clipped ${JSON.stringify(c)}`);
-    }
+      for(const edge of ['left','right','top','bottom'])assert.ok(Math.abs(previous.bounds[edge]-b[edge])<1,`${name} ${p}: reverse lens pose differs`);
+      for(const vector of ['position','quaternion'])state.diagnostics.camera[vector].forEach((value,i)=>assert.ok(Math.abs(value-previous.camera[vector][i])<1e-9,`${name} ${p}: reverse camera pose differs`));
+    }else poses.set(p,{bounds:b,camera:state.diagnostics.camera});
     if(p===0){
-      for(let axis=0;axis<3;axis++)assert.ok(presentationCase.assembledBounds.min[axis]>=presentationCase.cavity.min[axis]&&presentationCase.assembledBounds.max[axis]<=presentationCase.cavity.max[axis],`${name}: lens starts outside the closed case ${JSON.stringify(presentationCase)}`);
+      assert.ok(b.right-b.left>width*.1&&b.bottom-b.top>height*.12,`${name}: startup lens is too small`);
     }
     for(const panel of state.panels){
       assert.ok(panel.left>=16&&panel.right<=width-16,`${name} ${p}: caption clipped ${JSON.stringify(panel)}`);
-      const objects=[b,...(state.diagnostics.state.boxOpacity>.005?[c]:[])];
+      const objects=[b];
       const overlap=panel.rects.some(rect=>objects.some(object=>Math.min(rect.right,object.right)-Math.max(rect.left,object.left)>8&&Math.min(rect.bottom,object.bottom)-Math.max(rect.top,object.top)>8));
       assert.ok(!overlap,`${name} ${p}: caption ${panel.id} overlaps object ${JSON.stringify({panel,b})}`);
     }
     const control=await page.locator('.motion-toggle').boundingBox();
     assert.ok(control.x>=16&&control.x+control.width<=width-16&&control.y+control.height<=height,`${name}: Motion control cropped`);
-    checks.push({p,bounds:b,presentationCase,calls:state.diagnostics.calls,triangles:state.diagnostics.triangles});
-    if([0,.03,.06,.12,.17,.255,.52,.755,1].includes(p))await page.screenshot({path:`${out}/${name}-${String(p).replace('.','_')}.png`});
+    checks.push({p,bounds:b,camera:state.diagnostics.camera,renderRoots:state.diagnostics.renderRoots,layerCount:state.diagnostics.layerCount,calls:state.diagnostics.calls,triangles:state.diagnostics.triangles});
+    if(firstVisit&&[0,.06,.255,.52,.755,1].includes(p))await page.screenshot({path:`${out}/${name}-${String(p).replace('.','_')}.png`});
   }
   await page.locator('.chapter-nav button').nth(2).click();
   await page.waitForFunction(()=>Math.abs(window.__LUMEN.getState().progress-.52)<.002,null,{timeout:15000});
@@ -74,13 +71,18 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['user-desktop
   for(const delta of [1800,1800,-2600,1200,-2200])await page.mouse.wheel(0,delta);
   await page.waitForTimeout(150);
   const fast=await page.evaluate(()=>window.__LUMEN.getState());
-  assert.ok(Number.isFinite(fast.progress)&&fast.diagnostics.presentationCase.lidClearance>.004,`${name}: fast scroll invalid pose`);
+  assert.ok(Number.isFinite(fast.progress)&&Object.values(fast.diagnostics.bounds).every(Number.isFinite),`${name}: fast scroll invalid pose`);
+  assert.deepEqual(fast.diagnostics.renderRoots,['lens','lens-shadow']);
   if(name==='desktop'){
     for(const viewport of [{width:390,height:844},{width:320,height:568},{width:1440,height:1000}]){
-      await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));await page.waitForTimeout(120);
-      const resized=await page.evaluate(()=>window.__LUMEN.getState());const c=resized.diagnostics.presentationCase.bounds;
-      assert.ok(resized.progress<.002&&c.left>=16&&c.right<=viewport.width-16&&c.top>=80&&c.bottom<=viewport.height-62,`resize clips the opening case ${JSON.stringify({viewport,c})}`);
-      await page.screenshot({path:`${out}/resize-${viewport.width}-${viewport.height}.png`});
+      await page.setViewportSize(viewport);
+      for(const p of [0,.12]){
+        await page.evaluate(p=>{const m=window.__LUMEN.getState().measurements;window.scrollTo({top:m.start+m.range*p,behavior:'instant'});},p);await page.waitForTimeout(120);
+        const resized=await page.evaluate(()=>window.__LUMEN.getState());const b=resized.diagnostics.bounds;
+        assert.ok(Math.abs(resized.progress-p)<.002&&b.left>=8&&b.right<=viewport.width-8&&b.top>=80&&b.bottom<=viewport.height-62,`resize clips the lens ${JSON.stringify({viewport,p,b})}`);
+        assert.deepEqual(resized.diagnostics.renderRoots,['lens','lens-shadow']);
+        await page.screenshot({path:`${out}/resize-${viewport.width}-${viewport.height}-${p}.png`});
+      }
     }
   }
   if(name==='mobile'){

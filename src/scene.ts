@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { makeLens, shadowTexture } from './model';
 import { mix, sampleTimeline, smooth } from './timeline';
-import { CASE } from './presentation-case';
 
 export function createScene(canvas: HTMLCanvasElement) {
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:'high-performance'});
@@ -22,17 +21,17 @@ export function createScene(canvas: HTMLCanvasElement) {
   const rim=new THREE.DirectionalLight('#d8e6f1',2);rim.position.set(4,2,-4);scene.add(rim);
   const fill=new THREE.DirectionalLight('#ffffff',.7);fill.position.set(0,-2,6);scene.add(fill);
   const camera=new THREE.PerspectiveCamera(30,1,.1,100);camera.position.set(0,.35,16);
-  const lens=makeLens();scene.add(lens.root,lens.box);
+  const lens=makeLens();scene.add(lens.root);
   const envelopes=lens.parts.map(part=>{const box=new THREE.Box3().setFromObject(part);return {radius:Math.max(Math.abs(box.min.x),Math.abs(box.max.x),Math.abs(box.min.y),Math.abs(box.max.y))*1.035,zMin:box.min.z-part.position.z,zMax:box.max.z-part.position.z};});
   const shadow=new THREE.Mesh(new THREE.PlaneGeometry(7,4.3),new THREE.MeshBasicMaterial({map:shadowTexture(),transparent:true,depthWrite:false,opacity:.8}));
-  shadow.rotation.x=-Math.PI/2;shadow.position.y=-1.72;scene.add(shadow);
+  shadow.name='lens-shadow';shadow.rotation.x=-Math.PI/2;shadow.position.y=-1.72;scene.add(shadow);
   let width=1,height=1;
   let lastProgress=0;
   function resize() { const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix(); }
   function render(progress: number, reduced=false) {
     lastProgress=progress;
     const mobile=width<700;
-    const s=sampleTimeline(reduced?0.22:progress,mobile,reduced);
+    const s=sampleTimeline(reduced?0.22:progress,mobile);
     camera.position.x=0;
     const framing=smooth(0.28,.48,s.p)*(1-smooth(.81,.96,s.p));
     const portraitFit=Math.max(1,1.25/camera.aspect);
@@ -41,60 +40,21 @@ export function createScene(canvas: HTMLCanvasElement) {
     const lower=smooth(.25,.38,s.p)*(1-smooth(.81,.96,s.p));
     camera.lookAt(0,mobile?0:lower*(height<520?2.05:height<780?1.3:.9),0);
     lens.root.rotation.set(s.rotX,s.rotY,s.rotZ);
-    const shortOffset=mobile&&height<700?-.5:0;
+    const shortOffset=mobile&&height<700?-.5-.5*(1-smooth(.12,.255,s.p)):0;
     lens.root.position.set(s.modelX,s.modelY+shortOffset,0);lens.root.scale.setScalar(s.scale);
     lens.parts.forEach((part,i)=>{part.position.set(0,s.parts[i].y,s.parts[i].z);part.rotation.z=s.parts[i].rotation;part.visible=true;});
     lens.blades.forEach((blade,i)=>{blade.rotation.z=i/9*Math.PI*2+s.iris*.28;const mesh=blade.children[0];mesh.position.x=s.iris*.13;mesh.position.y=s.iris*.03;});
-    lens.box.position.set(s.modelX,s.boxY+shortOffset,0);lens.box.rotation.y=s.rotY;lens.box.rotation.z=s.rotZ*.2;
-    lens.box.scale.setScalar((mobile?1.04:1.25)/1.25);
-    lens.lid.rotation.x=s.lidAngle;
-    lens.box.visible=s.boxOpacity>.005;
-    lens.box.traverse(obj=>{if(obj instanceof THREE.Mesh){const transparent=s.boxOpacity<1;if(obj.material.transparent!==transparent){obj.material.transparent=transparent;obj.material.needsUpdate=true;}obj.material.depthWrite=!transparent;obj.material.opacity=s.boxOpacity;}});
-    // Frame the complete case during the opening instead of measuring only the
-    // lens. Keep it below the mobile caption and clear of the desktop title.
-    const caseFrame=reduced?0:1-smooth(.21,.28,s.p);
-    scene.updateMatrixWorld(true);
-    if(caseFrame>0){
-      const bounds=new THREE.Box3().setFromObject(lens.box);
-      bounds.union(new THREE.Box3().setFromObject(lens.root));
-      const center=bounds.getCenter(new THREE.Vector3());
-      const top=mobile?(height<700?310:385):100;
-      const bottom=height-(mobile?(height<700?122:142):85);
-      const left=mobile?24:width*.49;const right=width-(mobile?24:80);
-      const tan=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
-      const nx=(left+right)/width-1,ny=1-(top+bottom)/height;
-      const minX=left/width*2-1,maxX=right/width*2-1,minY=1-bottom/height*2,maxY=1-top/height*2;
-      let z=camera.position.z;
-      for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const depth of [bounds.min.z,bounds.max.z]){
-        z=Math.max(z,((x-center.x)/(tan*camera.aspect)-nx*center.z+maxX*depth)/(maxX-nx),((center.x-x)/(tan*camera.aspect)+nx*center.z-minX*depth)/(nx-minX),((y-center.y)/tan-ny*center.z+maxY*depth)/(maxY-ny),((center.y-y)/tan+ny*center.z-minY*depth)/(ny-minY));
-      }
-      z+=.1;
-      const x=center.x-nx*(z-center.z)*tan*camera.aspect;
-      const y=center.y-ny*(z-center.z)*tan;
-      const fittedPosition=new THREE.Vector3(x,y,z);
-      const fittedRotation=new THREE.Quaternion();
-      camera.position.lerp(fittedPosition,caseFrame);camera.quaternion.slerp(fittedRotation,caseFrame);
-    }
-    shadow.position.x=s.modelX;shadow.position.y=mobile?-2.82:-1.72;shadow.scale.set(mix(1,2.45,s.explode),1,1);shadow.material.opacity=mix(.7,.32,s.reveal)*(1-s.explode*.45);
+    shadow.position.x=s.modelX;shadow.position.y=mobile?-2.82:-1.72;shadow.scale.set(mix(1,2.45,s.explode),1,1);shadow.material.opacity=mix(.7,.32,s.intro)*(1-s.explode*.45);
     renderer.render(scene,camera);
     const anchors=[1,4,8].map(i=>{const world=new THREE.Vector3(0,-1.25,0);lens.parts[i].localToWorld(world);world.project(camera);return {x:(world.x*.5+.5)*width,y:(-.5*world.y+.5)*height};});
     const corners:{x:number;y:number}[]=[];
-    const inverseBox=lens.box.matrixWorld.clone().invert();
-    const assembledBounds=new THREE.Box3();
-    lens.parts.forEach((part,i)=>{const envelope=envelopes[i];for(let angle=0;angle<48;angle++){const a=angle/48*Math.PI*2;for(const z of [envelope.zMin,envelope.zMax]){const v=new THREE.Vector3(Math.cos(a)*envelope.radius,Math.sin(a)*envelope.radius,z).applyMatrix4(part.matrixWorld);assembledBounds.expandByPoint(v.clone().applyMatrix4(inverseBox));v.project(camera);corners.push({x:(v.x*.5+.5)*width,y:(-.5*v.y+.5)*height});}}});
-    const projectBounds=(object:THREE.Object3D)=>{
-      const b=new THREE.Box3().setFromObject(object);const projected:THREE.Vector3[]=[];
-      for(const x of [b.min.x,b.max.x])for(const y of [b.min.y,b.max.y])for(const z of [b.min.z,b.max.z])projected.push(new THREE.Vector3(x,y,z).project(camera));
-      return {left:Math.min(...projected.map(v=>(v.x*.5+.5)*width)),right:Math.max(...projected.map(v=>(v.x*.5+.5)*width)),top:Math.min(...projected.map(v=>(-.5*v.y+.5)*height)),bottom:Math.max(...projected.map(v=>(-.5*v.y+.5)*height))};
-    };
-    const lidLocalBounds=new THREE.Box3();
-    lens.lid.traverse(obj=>{if(obj instanceof THREE.Mesh){const positions=obj.geometry.getAttribute('position');const transform=inverseBox.clone().multiply(obj.matrixWorld);for(let i=0;i<positions.count;i++)lidLocalBounds.expandByPoint(new THREE.Vector3().fromBufferAttribute(positions,i).applyMatrix4(transform));}});
-    return {state:s,anchors,bounds:{left:Math.min(...corners.map(v=>v.x)),right:Math.max(...corners.map(v=>v.x)),top:Math.min(...corners.map(v=>v.y)),bottom:Math.max(...corners.map(v=>v.y))},presentationCase:{bounds:projectBounds(lens.box),lidBounds:projectBounds(lens.lid),lidClearance:lidLocalBounds.min.y-CASE.rim,cavity:{min:[-CASE.width/2+CASE.wall,-.015,-CASE.depth/2+CASE.wall],max:[CASE.width/2-CASE.wall,CASE.rim,CASE.depth/2-CASE.wall]},assembledBounds:{min:assembledBounds.min.toArray(),max:assembledBounds.max.toArray()}},calls:renderer.info.render.calls,triangles:renderer.info.render.triangles};
+    lens.parts.forEach((part,i)=>{const envelope=envelopes[i];for(let angle=0;angle<48;angle++){const a=angle/48*Math.PI*2;for(const z of [envelope.zMin,envelope.zMax]){const v=new THREE.Vector3(Math.cos(a)*envelope.radius,Math.sin(a)*envelope.radius,z).applyMatrix4(part.matrixWorld).project(camera);corners.push({x:(v.x*.5+.5)*width,y:(-.5*v.y+.5)*height});}}});
+    return {state:s,anchors,bounds:{left:Math.min(...corners.map(v=>v.x)),right:Math.max(...corners.map(v=>v.x)),top:Math.min(...corners.map(v=>v.y)),bottom:Math.max(...corners.map(v=>v.y))},renderRoots:scene.children.filter(obj=>obj instanceof THREE.Group||obj instanceof THREE.Mesh).map(obj=>obj.name),layerCount:lens.parts.length,camera:{position:camera.position.toArray(),quaternion:camera.quaternion.toArray()},calls:renderer.info.render.calls,triangles:renderer.info.render.triangles};
   }
   function capture(kind: 'assembled'|'glass'|'iris'|'mount',w=1400,h=1200) {
     const oldPixel=renderer.getPixelRatio();renderer.setPixelRatio(1);renderer.setSize(w,h,false);
     camera.aspect=w/h;camera.position.set(0,.3,kind==='assembled'?11.5:7.2);camera.lookAt(0,0,0);camera.updateProjectionMatrix();
-    lens.box.visible=false;shadow.visible=false;
+    shadow.visible=false;
     lens.root.position.set(0,0,0);lens.root.scale.setScalar(1);lens.root.rotation.set(-.23,kind==='assembled'?-.48:-.45,-.26);
     const selection=kind==='glass'?[0,1,2]:kind==='iris'?[4]:kind==='mount'?[7,8]:[0,1,2,3,4,5,6,7,8];
     lens.parts.forEach((part,i)=>{part.visible=selection.includes(i);part.position.set(0,0,kind==='assembled'?sampleTimeline(0).parts[i].z:kind==='glass'?(1-i)*.25:kind==='mount'?(7.5-i)*.28:0);part.rotation.z=0;});
