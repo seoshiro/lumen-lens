@@ -24,6 +24,7 @@ let lastDiagnostics:ReturnType<NonNullable<typeof scene>['render']>|undefined;
 
 function markup(){
   const c=COPY[locale];
+  const canvas=document.querySelector<HTMLCanvasElement>('#lens-canvas');
   document.documentElement.lang=locale;document.title=`LUMEN — ${locale==='en'?'Light, in layers.':locale==='ru'?'Свет, по слоям.':'Жарық, қабат-қабат.'}`;
   app.innerHTML=`
     <a class="skip" href="#study">${c.skip}</a>
@@ -51,6 +52,7 @@ function markup(){
       <section class="closing content-width"><p class="eyebrow">LUMEN / L–01</p><h2>${c.closing}</h2><img class="closing-lens" src="${base}stills/assembled.webp" alt="${c.stageAlt}" loading="lazy" width="1400" height="1200"/><p>${c.closingBody}</p><a class="pill" href="#lens">${c.replay}${icon}</a></section>
     </main>
     <footer class="footer content-width"><a class="wordmark" href="#lens">LUMEN<span class="wordmark-dot"></span></a><p>${c.footer}</p><span>${c.concept}</span></footer>`;
+  if(canvas){canvas.setAttribute('aria-label',c.stageAlt);document.querySelector('#lens-canvas')!.replaceWith(canvas);}
   bind();applyMode();measure();update();
 }
 
@@ -93,7 +95,7 @@ async function initScene(){
 }
 function bind(){
   document.querySelectorAll<HTMLElement>('[data-chapter]').forEach(el=>el.addEventListener('click',e=>{e.preventDefault();goChapter(Number(el.dataset.chapter));}));
-  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach(btn=>btn.addEventListener('click',async()=>{const oldY=window.scrollY;locale=btn.dataset.locale as Locale;const url=new URL(location.href);url.searchParams.set('lang',locale);history.replaceState(null,'',url);markup();await initScene();window.scrollTo({top:oldY,behavior:'instant'});schedule();}));
+  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach(btn=>btn.addEventListener('click',()=>{const oldY=window.scrollY;locale=btn.dataset.locale as Locale;const url=new URL(location.href);url.searchParams.set('lang',locale);history.replaceState(null,'',url);markup();window.scrollTo({top:oldY,behavior:'instant'});schedule();}));
   document.querySelector('.motion-toggle')?.addEventListener('click',()=>{const inStage=window.scrollY<measurements.start+measurements.range;reduced=!reduced;try{localStorage.setItem('lumen-reduced',String(reduced));}catch{/* No storage is required. */}applyMode();measure();if(inStage)window.scrollTo({top:measurements.start,behavior:'instant'});update();});
   const gallery=document.querySelector<HTMLDivElement>('.gallery')!;
   gallery.addEventListener('scroll',schedule,{passive:true});

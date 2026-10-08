@@ -3,6 +3,29 @@ import AxeBuilder from '@axe-core/playwright';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 
+async function verifyLocaleTransition(page,sequence,rapid=false){
+  await page.evaluate(()=>window.scrollTo({top:window.scrollY,behavior:'instant'}));
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const transition=await page.evaluate(async({sequence,rapid})=>{
+    const before=window.__LUMEN.getState(),oldY=window.scrollY,frames=[];
+    const sample=()=>{const s=window.__LUMEN.getState(),canvas=document.querySelector('#lens-canvas');frames.push({locale:s.locale,progress:s.progress,y:window.scrollY,range:s.measurements.range,loading:document.documentElement.classList.contains('is-loading'),opacity:getComputedStyle(canvas).opacity,fallback:getComputedStyle(document.querySelector('.fallback')).display,bounds:s.diagnostics.bounds,camera:s.diagnostics.camera});};
+    for(const language of sequence){document.querySelector(`[data-locale="${language}"]`).click();sample();if(!rapid){await new Promise(requestAnimationFrame);sample();}}
+    for(let i=0;i<8;i++){await new Promise(requestAnimationFrame);sample();}
+    return {before,oldY,frames};
+  },{sequence,rapid});
+  for(const frame of transition.frames){
+    assert.equal(frame.loading,false,'Locale switch shows a loading frame');
+    assert.equal(frame.opacity,'1','Locale switch hides the lens');
+    assert.equal(frame.fallback,'none','Locale switch flashes the loading still');
+    assert.ok(Math.abs(frame.progress-transition.before.progress)<.002,'Locale switch changes scroll progress');
+    assert.ok(Math.abs(frame.y-transition.oldY)<1,'Locale switch changes scroll position: '+JSON.stringify({actual:frame.y,expected:transition.oldY,locale:frame.locale}));
+    assert.equal(frame.range,transition.before.measurements.range,'Locale switch collapses the scroll range');
+    for(const edge of ['left','right','top','bottom'])assert.ok(Math.abs(frame.bounds[edge]-transition.before.diagnostics.bounds[edge])<1,'Locale switch changes lens size or placement');
+    assert.deepEqual(frame.camera,transition.before.diagnostics.camera,'Locale switch changes camera pose');
+  }
+  assert.equal(transition.frames.at(-1).locale,sequence.at(-1));
+}
+
 const base=process.env.LUMEN_URL||'http://127.0.0.1:5413/';
 const out=process.env.LUMEN_EVIDENCE||'../evidence/browser';
 const browser=await chromium.launch({headless:true,...(process.platform==='win32'?{executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'}:{})});
@@ -61,9 +84,8 @@ for(const [name,width,height,lang] of [['desktop',1440,1000,'en'],['user-desktop
   await page.locator('.chapter-nav button').nth(2).click();
   await page.waitForFunction(()=>Math.abs(window.__LUMEN.getState().progress-.52)<.002,null,{timeout:15000});
   assert.ok(Math.abs((await page.evaluate(()=>window.__LUMEN.getState().progress))-.52)<.002);
-  if(name==='mobile'){
-    for(const language of ['ru','kk','en']){await page.locator(`[data-locale="${language}"]`).click();await page.waitForTimeout(200);const s=await page.evaluate(()=>window.__LUMEN.getState());assert.equal(s.locale,language);assert.ok(Math.abs(s.progress-.52)<.002);}
-  }
+  await verifyLocaleTransition(page,['ru','kk','en','kk','ru',lang]);
+  await verifyLocaleTransition(page,['kk','en','ru','en','kk','ru',lang],true);
   await page.keyboard.press('Home');
   await page.waitForFunction(()=>window.__LUMEN.getState().progress<.002,null,{timeout:15000});
   assert.ok((await page.evaluate(()=>window.__LUMEN.getState().progress))<.002);
